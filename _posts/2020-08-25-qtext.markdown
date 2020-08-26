@@ -50,7 +50,7 @@ While this did work, it only accounted for a small part of the code - the execut
 
 Recalling older days of reversing crackmes (though not as old as this program) reminded me that there used to be a host of generic unpacker tools, the working of which 
 were often mysterious - but generally speaking they did the job.
-Eventually we found the following TODO blog post which guided me to the the legendary reverse engineering relic - [exetools][exetools].
+Eventually we found the [following ssowkolow blog post][ssowkolow] which guided me to the the legendary reverse engineering relic - [exetools][exetools].
 
 The unpacker page had a huge amount of unpackers, we assume a lot of them would have done the job - as PKZip was fairly common. 
 We first tried the one called `PKUNLITE`, and when that didn't work (but looked promising) - we found success with `DISLITE v1.15`.
@@ -112,7 +112,7 @@ Presumably, the function at TODO performs key expansion.
 ### Key derivation function
 The passcode is first passed through a permutation function which iteratively increments each byte of the passcode by the sum of all bytes in the string.
 Before proceeding to the byte in the next position, a certain predicate is tested by using the value of the resulting byte as an index into a static bitmap - where each bit represents whether or not
-that byte value is valid (1) or not (0). Similar to CFG!
+that byte value is valid (1) or not (0). Similar to [CFG][cfg-wiki]!
 
 If the value is invalid - it is incremented by 0x22 - which in the case of our immutable bitmap - is always enough to push it into the valid value range.
 TODO - screen shot of bitmap
@@ -494,7 +494,7 @@ So - starting from the 16 byte key ($$K$$) as extracted from the document:
 
 TODO - screenshot of script running on document
 
-The qtext cracker script in its entirety can found here.
+The qtext cracker script in its entirety can found [here][qtext-cracker].
 
 
 [pkzip-wiki]: https://en.wikipedia.org/wiki/PKZIP
