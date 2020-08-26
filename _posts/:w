@@ -1,0 +1,250 @@
+---
+layout: post
+title:  "Fresh Crypto"
+date:   2020-08-25 18:15:30 +0000
+categories: math crypto ms-dos
+---
+{% include mathjax.html %}
+# Fresh Crypto 
+
+## Intro
+Description of project - decrypting QText documents the passcode to which has been lost
+Short blog post describing the process of reversing and attacking the fairly weak encryption mechanism.
+A lot of the tools (Unpackers, IDA Free) and knowledge used had barely survived to this day.
+
+## Getting started - QText
+DOSBOX is our go to emulator
+Screenshots of software, early conclusions on form of crypto
+* Passcode is short - 4 characters and limited to uppercase characters and numbers - very small keyspace
+* Header is added to encrypted files - same passcode == same header - is it the encryption key?
+* 16 byte key (TODO - add vimdiff of hexdump of two file headers) is included in header - no actual secret
+* Per line encryption, per column values (show line of `'aaaa'`s encrypted, as well as line of `'a a '`s
+
+The key may be included in the file, but we don't know the encryption mechanism. 
+We could try and reverse it, but brute-forcing is feasible and simpler in this case - if we have a fast way to test the passcodes. 
+Assuming (quite safely) that the 16 byte "key" is derived from the passcode - we can try to reverse engineer the key derivation algorithm - which we first confirmed was not any well known hash function.
+
+## Reversing MS-DOS binaries
+MS-DOS era binaries - not quite PE, but does start with MZ
+Reminder about flat memory space - 16 bits, segmentation
+
+### PKZip
+File recognizes it as PKZip packed SFX - self extracting executable.
+PKWare is responsible for the popularity of the ZIP file format as we know it today
+But it was also responsible for a widely used executable packer in the MS-DOS age.
+
+There isn't any readily available information about PKZip - presumably it utilized the same compression algorithm as the normal zip utility,
+but we were struggling to find a tool that would properly unpack the SFX to a plain executable.
+
+Having failed to find additional information about this packer, and wanting to avoid reverse engineering the unpacker stub - 
+We tried to use the DOSBOX debuggers CPU LOG feature to step past the unpacker code, sometime after the original entry point - and then extract the code from memory.
+
+While this did work, it only accounted for a small part of the code - the executable was TODO in size and we could only see one segment of code executing at that time.
+
+Recalling older days of reversing crackmes (though not as old as this program) reminded me that there used to be a host of generic unpacker tools, the working of which 
+were often mysterious - but generally speaking they did the job.
+Eventually we found the following TODO blog post which guided me to the the legendary reverse engineering relic - exetools.
+
+The unpacker page had a huge amount of unpackers, we assume a lot of them would have done the job as PKZip was fairly common, but we first tried
+the one called PKUNLITE, and when that didn't work (but looked promising) - DISLITE v1.15
+
+TODO - screenshots of both tools running
+
+
+### int 3f - MS-DOS Overlays
+Loading the binary in IDA Free 5.0 (which luckily is still in distribution - hosted at the ScummVM website) showed that the executable utilized
+dynamic overlay linking - likely Turbo Pascal overlays.
+Overlays were the solution to the limited 16bit memory space. The overlay mechanism was essentially an implementation of page swapping in user-space - 
+The executable was accompanied by an .ovr file which contained additional code (in this case, a LOT of additional code)
+The root code (which originates from the .exe file) was always mapped into memory, while segments of the overlay were mapped into memory selectively.
+Calls between overlays (and the root segment) occured through a jump table.
+If the overlay was already mapped into memory, the stub simply led to its location.
+Otherwise, it led to (in this case) `int 3f` instruction accompanied by the overlay metadata - which contained among other things the file offset of the relevant code segment.
+The interrupt handler would then map the relevant overlay into memory, in place of another overlay, and fix up the stubs, before resuming execution.
+
+TODO - screenshot of overlay metadata
+
+IDA does an excellent job in flattening and statically linking the stubs so we can reverse engineer the program in its entirety, but this presented a challenge for us 
+in dynamically debugging the code, since while the root segment were always loaded into the same memory area, the overlays would change location very often, making it impossible
+for us to place breakpoints properly.
+Dredging up information about the Turbo Pascal overlay system was difficult, and the DOSBOX debugger did not explicitly support stepping out of the interrupt.
+It's likely that we could have reverse engineering the interrupt handler and found a place to break in right before resuming program execution in the newly loaded overlay,
+but we eventually opted for a simpler solution - finding an overlay-to-root call that we could break on and then step out into the newly loaded overlay.
+This is slightly arduous but for the fairly short task at hand it would work, and we had ample overlay-to-root calls to break on since the root segment hosted a lot of
+Turbo Pascal standard functions.
+
+
+## Key expansion function
+### Tracing through passcode flow
+Finding the key expansion function took some reversing and a lot of tracing.
+Our initial idea was perform hot spot analysis by using DOSBOX's CPU log command to trace execution while repeatedly failing the passcode check on a locked document.
+TODO - add screenshot of failed passcode check
+
+Eventually we went for a more direct approach and simply placed a breakpoint on the `int 21` interrupt handler to catch open and read calls
+TODO - add debugger picture, correct int 21 params
+
+We traced through an open on the document path and a read of 0x1d bytes - which is the exact size of the header we saw in locked documents.
+Continuing with dynamic debugging, we pinpointed a function that takes the entered passcode string and the 0x1d header as parameters.
+
+Digging in, we see how the the passcode is passed into an internal function, and the result is compared to the header.
+
+TODO - add IDA screen shot of main function, and of pascal string compare call
+
+Presumably, the function at TODO performs key expansion.
+
+### Key derivation function
+The passcode is first passed through a permutation function which iteratively increments each byte of the passcode by the sum of all bytes in the string.
+Before proceeding to the byte in the next position, a certain predicate is tested by using the value of the resulting byte as an index into a static bitmap - where each bit represents whether or not
+that byte value is valid (1) or not (0). Similar to CFG!
+
+If the value is invalid - it is incremented by 0x22 - which in the case of our immutable bitmap - is always enough to push it into the valid value range.
+TODO - screen shot of bitmap
+
+Concretely, this can be represented by simply checking if 0x21 < value < 0xff TODO :shrug:
+
+After that, the string is concatenated to itself (in place) 3 times, and passed through the permutation function again.
+
+The result of this is indeed the key as it appears in the header.
+
+P(x) - permutation function
+i -> len of x
+j -> len of x
+k[i] = k[i] + k[j]
+
+K = P(P(passcode) | P(passcode) | P(passcode) | P(passcode))
+
+Now we can brute-force the passcode which has a very small input space very quickly.
+However, with our new-found knowledge of the key derivation function, we can try to reverse it for an even quicker solution.
+
+## Reversing the key derivation
+Let's first examine a simple case - the result of permutating a simple two character string - '00':
+30 30
+    i = 0
+        j = 0
+            30
+            30  30
+            ------
+            60  30
+        j = 1
+                30
+                60  30
+                ------
+                90  30
+     i = 1
+        j = 0
+                90
+            90  30
+            ------
+            90 1c0
+        j = 1
+                c0
+            90  c0
+            ------
+            90 180
+90 80
+
+frame count = i times j
+frame
+{::options parse_block_html="true" /}
+$$
+i:      0
+j:      0
+        30  \30
+    +   30  30
+        -------
+        60  30
+
+i:      0
+j:      1
+        30  \30
+    +        60  30
+             -------
+             90  30
+$$
+{::options parse_block_html="false" /}
+{::options parse_block_html="true" /}
+<div id='frame2'>
+$$ 
+\begin{align}
+\begin{array}{cc}
+    \boxed
+    {
+        \begin{array}{l|rr}
+            i: &     0 & \color{silver}1 \\
+            j: &     0 & \color{silver}1
+        \end{array} 
+    }
+    & & &
+    \begin{array}{rr}
+        & v[j]: & \color{silver}{\mathrm{60}} & \mathrm{30} \\
+        +& v[i]: & \phantom{\mathrm{30}} & \mathrm{60} & \color{silver}{\mathrm{30}} \\
+        \hline
+        & & \phantom{\mathrm{30}} & \mathrm{90} & \color{silver}{\mathrm{30}}
+    \end{array} 
+\end{array} 
+\end{align} \\
+$$
+</div>
+<div id='frame2'>
+$$ 
+\begin{align}
+\begin{array}{cc}
+    \boxed
+    {
+        \begin{array}{l|rr}
+            i: &     0 & \color{silver}1 \\
+            j: &     \color{silver}0 & 1
+        \end{array} 
+    }
+    & & &
+    \begin{array}{rr}
+        & v[j]: & \color{silver}{\mathrm{60}} & \mathrm{30} \\
+        +& v[i]: & \phantom{\mathrm{30}} & \mathrm{60} & \color{silver}{\mathrm{30}} \\
+        \hline
+        & & \phantom{\mathrm{30}} & \mathrm{90} & \color{silver}{\mathrm{30}}
+    \end{array} 
+\end{array} 
+\end{align} \\
+$$
+</div>
+{::options parse_block_html="false" /}
+
+
+
+            
+                  
+            
+    
+
+
+
+So, reversing the key expansion linearly isn't possible, since we lose 1 bit of information at each addition - the carry bit. Simply put - we don't know if a byte-overflow occured.
+That means that for each byte, we superimpose two possible options.
+In addition, for a certain range of values, another split occurs.
+If the given value is +0x22 from any of the "forbidden" byte values, we don't know if that value was arrived at naturally, or the corresponding forbidden value was the 
+result of the final step of the addition, and was then followed by correction by 0x22 bytes.
+Luckily, none of the forbidden values lead to double corrections as their range only spans 0x21 TODO ?? bytes.
+
+This means that we branch out between once and twice at each byte. For 16 bytes, that means between 2**16 and 2**17 branches, which isn't too bad, but luckily there
+are a couple of constraints that help us out in minimizing the search space.
+
+### Reversing the first stage - 4 bytes to 4 printable characters
+The first constraint is pretty straightforward - any final byte has to be a printable character.
+
+
+### Reversing the second stage - 16 bytes to 4\*4 byte strings
+The second constraint isnt as trivial, but is still pretty simple - the format of the 16 byte key before getting clobbered is 4 bytes repeating 4 times.
+That means we only have to decompose 4 bytes - and then re-feed those 4 bytes through the expansion network to see if we receive the original key.
+
+That narrows our search space down to 2**5 for each step - or 2**6 in total.
+
+
+
+
+https://en.wikipedia.org/wiki/PKZIP
+https://www.dosbox.com/
+https://www.scummvm.org/
+
+https://dos4gw.org/
+http://blog.ssokolow.com/archives/2018/12/02/resources-for-reverse-engineering-16-bit-applications/
+https://en.wikipedia.org/wiki/Control-flow_integrity
