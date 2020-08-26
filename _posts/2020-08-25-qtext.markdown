@@ -2,7 +2,7 @@
 layout: post
 title:  "Fresh Crypto"
 date:   2020-08-25 18:15:30 +0000
-categories: math crypto ms-dos
+tags: math crypto ms-dos
 ---
 {% include mathjax.html %}
 # Fresh Crypto 
