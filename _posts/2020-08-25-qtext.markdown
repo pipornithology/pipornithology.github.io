@@ -5,7 +5,10 @@ date:   2020-08-25 18:15:30 +0000
 tags: math crypto ms-dos
 ---
 {% include mathjax.html %}
+
 # Fresh Crypto 
+* Table of Contents
+{:toc}
 
 ## Intro
 Description of project - decrypting QText documents the passcode to which has been lost
@@ -13,8 +16,10 @@ Short blog post describing the process of reversing and attacking the fairly wea
 A lot of the tools (Unpackers, IDA Free) and knowledge used had barely survived to this day.
 
 ## Getting started - QText
-DOSBOX is our go to emulator
-Screenshots of software, early conclusions on form of crypto
+Luckily, we had access to working QText binaries and the [DOSBOX][dosbox] emulator.
+
+TODO: Screenshots of software, early conclusions on form of crypto
+
 * Passcode is short - 4 characters and limited to uppercase characters and numbers - very small keyspace
 * Header is added to encrypted files - same passcode == same header - is it the encryption key?
 * 16 byte key (TODO - add vimdiff of hexdump of two file headers) is included in header - no actual secret
@@ -26,12 +31,14 @@ Assuming (quite safely) that the 16 byte "key" is derived from the passcode - we
 
 ## Reversing MS-DOS binaries
 MS-DOS era binaries - not quite PE, but does start with MZ
-Reminder about flat memory space - 16 bits, segmentation
+TODO Reminder about flat memory space - 16 bits, segmentation
 
 ### PKZip
-File recognizes it as PKZip packed SFX - self extracting executable.
-PKWare is responsible for the popularity of the ZIP file format as we know it today
-But it was also responsible for a widely used executable packer in the MS-DOS age.
+The `file` utility recognizes our binary as a [PKZip][pkzip-wiki] packed SFX - self extracting executable.
+TODO - screenshot of file output
+
+PKWare is responsible for the popularity of the ZIP file format as we know it today, 
+but it was also responsible for a widely used executable packer in the MS-DOS age.
 
 There isn't any readily available information about PKZip - presumably it utilized the same compression algorithm as the normal zip utility,
 but we were struggling to find a tool that would properly unpack the SFX to a plain executable.
@@ -43,36 +50,46 @@ While this did work, it only accounted for a small part of the code - the execut
 
 Recalling older days of reversing crackmes (though not as old as this program) reminded me that there used to be a host of generic unpacker tools, the working of which 
 were often mysterious - but generally speaking they did the job.
-Eventually we found the following TODO blog post which guided me to the the legendary reverse engineering relic - exetools.
+Eventually we found the following TODO blog post which guided me to the the legendary reverse engineering relic - [exetools][exetools].
 
-The unpacker page had a huge amount of unpackers, we assume a lot of them would have done the job as PKZip was fairly common, but we first tried
-the one called PKUNLITE, and when that didn't work (but looked promising) - DISLITE v1.15
+The unpacker page had a huge amount of unpackers, we assume a lot of them would have done the job - as PKZip was fairly common. 
+We first tried the one called `PKUNLITE`, and when that didn't work (but looked promising) - we found success with `DISLITE v1.15`.
 
 TODO - screenshots of both tools running
 
+### `int 3f` - MS-DOS Overlays
+Loading the binary in IDA Free 5.0 (which luckily is still in distribution - hosted at the ScummVM website) showed that the executable utilized dynamic overlay linking - likely Turbo Pascal overlays.
 
-### int 3f - MS-DOS Overlays
-Loading the binary in IDA Free 5.0 (which luckily is still in distribution - hosted at the ScummVM website) showed that the executable utilized
-dynamic overlay linking - likely Turbo Pascal overlays.
-Overlays were the solution to the limited 16bit memory space. The overlay mechanism was essentially an implementation of page swapping in user-space - 
-The executable was accompanied by an .ovr file which contained additional code (in this case, a LOT of additional code)
-The root code (which originates from the .exe file) was always mapped into memory, while segments of the overlay were mapped into memory selectively.
-Calls between overlays (and the root segment) occured through a jump table.
-If the overlay was already mapped into memory, the stub simply led to its location.
-Otherwise, it led to (in this case) `int 3f` instruction accompanied by the overlay metadata - which contained among other things the file offset of the relevant code segment.
+Overlays were the solution to the limited 16 bit memory space. 
+
+The overlay mechanism was essentially an implementation of page swapping in user-space:
+The executable contained root segments of non-movable memory, and was accompanied by an .ovr file which contained additional code (in this case, a LOT of additional code).
+
+The root code (which originates from the .exe file) was always mapped into memory, while segments of the overlay were mapped into memory selectively and swapped on-demand.
+
+Calls between overlays (and the root segment) occured through a jump table, if the overlay was already mapped into memory, the jump table stubs were "linked" to its current location in memory.
+
+Otherwise, it led to (in this case) an [`int 3f`][dos4gw] instruction, and alongside it - the overlay metadata.
+
+The overlay metadata contained - among other things - the file offset of the relevant code segment.
+
 The interrupt handler would then map the relevant overlay into memory, in place of another overlay, and fix up the stubs, before resuming execution.
 
-TODO - screenshot of overlay metadata
+TODO - screenshot of overlay metadata and screen shot of linked jump 
 
-IDA does an excellent job in flattening and statically linking the stubs so we can reverse engineer the program in its entirety, but this presented a challenge for us 
-in dynamically debugging the code, since while the root segment were always loaded into the same memory area, the overlays would change location very often, making it impossible
-for us to place breakpoints properly.
+IDA does an excellent job in flattening and statically linking the stubs so we can reverse engineer the program in its entirety.
+
+However this presented a challenge for us in dynamically debugging the code, since while the root segment were always loaded into the same memory area, the overlays would change location very often, making it impossible for us to place breakpoints properly.
+
 Dredging up information about the Turbo Pascal overlay system was difficult, and the DOSBOX debugger did not explicitly support stepping out of the interrupt.
+
 It's likely that we could have reverse engineering the interrupt handler and found a place to break in right before resuming program execution in the newly loaded overlay,
 but we eventually opted for a simpler solution - finding an overlay-to-root call that we could break on and then step out into the newly loaded overlay.
+
 This is slightly arduous but for the fairly short task at hand it would work, and we had ample overlay-to-root calls to break on since the root segment hosted a lot of
 Turbo Pascal standard functions.
 
+TODO - screenshot of overlay function calling root segment function
 
 ## Key expansion function
 ### Tracing through passcode flow
@@ -100,18 +117,53 @@ that byte value is valid (1) or not (0). Similar to CFG!
 If the value is invalid - it is incremented by 0x22 - which in the case of our immutable bitmap - is always enough to push it into the valid value range.
 TODO - screen shot of bitmap
 
-Concretely, this can be represented by simply checking if 0x21 < value < 0xff TODO :shrug:
+{::options parse_block_html="true" /}
+<figure>
+{% highlight python %}
+ 24 # Taken from binary
+ 25 BITMAP = b"\xff\xff\xff\xff\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80"
+...
+ 28 def is_valid_char(c):
+ 29     # Can be simplified as 0x20 < c < 0x100
+ 30     assert type(c) is int
+ 31     assert c <= 0xFF
+ 32     upper_idx = c >> 3  # upper 5 bits
+ 33     lower_idx = c & 0b111  # Lower 3 bits
+ 34     return not bool((BITMAP[upper_idx] >> lower_idx) & 1)
+{% endhighlight %}
+<center>
+<figcaption><i>Excerpt from qtext_cracker.py - the predicate recreated in python</i></figcaption>
+</center>
+</figure>
+{::options parse_block_html="false" /}
+Concretely, this can be represented by simply checking if $$0x20 \lt value \lt 0x100$$  🤷
+
+The permutation function $$P(x)$$ is simple - it iteratively increments each byte by the sum of the entire string at that point:
+{::options parse_block_html="true" /}
+<figure>
+{% highlight python %}
+ 37 def key_transform(input_key, modifier=0x22):
+ 38     assert type(input_key) is bytearray
+ 39     key = bytearray(input_key)  # copy
+ 40     for i in range(len(key)):
+ 41         for j in range(len(key)):
+ 42             key[i] = (key[i] + key[j]) & 0xFF
+ 43         while not is_valid_char(key[i]):
+ 44             key[i] = (key[i] + modifier) & 0xFF
+ 45     return key
+{% endhighlight %}
+<center>
+<figcaption><i>Excerpt from qtext_cracker.py - the permutation function recreated in python</i></figcaption>
+</center>
+</figure>
+{::options parse_block_html="false" /}
 
 After that, the string is concatenated to itself (in place) 3 times, and passed through the permutation function again.
-
 The result of this is indeed the key as it appears in the header.
 
-P(x) - permutation function
-i -> len of x
-j -> len of x
-k[i] = k[i] + k[j]
+Thus the key derivation function $$K(\text{passcode})$$ is:
 
-K = P(P(passcode) | P(passcode) | P(passcode) | P(passcode))
+$$K(\text{passcode}) = P(P(\text{passcode}) | P(\text{passcode}) | P(\text{passcode}) | P(\text{passcode}))$$
 
 Now we can brute-force the passcode which has a very small input space very quickly.
 However, with our new-found knowledge of the key derivation function, we can try to reverse it for an even quicker solution.
@@ -182,7 +234,6 @@ Let's first examine a simple case - the result of permutating a simple two chara
 <div style="overflow-x: scroll">
 <div id="math" align=center>
 $$ 
-\require{cancel}
 \cssId{Step1}
 {
     \begin{align}
@@ -199,7 +250,7 @@ $$
             & v[j]: & \phantom{\mathrm{30}} & \mathrm{30} & \color{silver}{\mathrm{30}} \\
             +& v[i]: & \phantom{\mathrm{30}} & \mathrm{30} & \color{silver}{\mathrm{30}} \\
             \hline
-            & & \phantom{\mathrm{30}} & \mathrm{\phantom{\cancel{1}}60} & \color{silver}{\mathrm{\phantom{1}30}}
+            & & \phantom{\mathrm{30}} & \mathrm{\phantom{\color{red}{1}}60} & \color{silver}{\mathrm{\phantom{1}30}}
         \end{array} 
     \end{array} 
     \end{align}
@@ -220,7 +271,7 @@ $$
             & v[j]: & \color{silver}{\mathrm{60}} & \mathrm{30} \\
             +& v[i]: & \phantom{\mathrm{30}} & \mathrm{60} & \color{silver}{\mathrm{30}} \\
             \hline
-            & & \phantom{\mathrm{30}} & \mathrm{\phantom{\cancel{1}}90} & \color{silver}{\mathrm{\phantom{1}30}}
+            & & \phantom{\mathrm{30}} & \mathrm{\phantom{\color{red}{1}}90} & \color{silver}{\mathrm{\phantom{1}30}}
         \end{array} 
     \end{array} 
     \end{align}
@@ -241,7 +292,7 @@ $$
             & v[j]: & \phantom{\mathrm{30}} & \mathrm{90} & \color{silver}{\mathrm{30}} \\
             +& v[i]: & \color{silver}{\mathrm{90}} & \mathrm{30} & \phantom{\mathrm{30}} \\
             \hline
-            & & \color{silver}{\mathrm{90}} & \mathrm{\cancel{1}c0} & \phantom{\color{silver}{\mathrm{\phantom{1}30}}}
+            & & \color{silver}{\mathrm{90}} & \mathrm{\color{red}{1}c0} & \phantom{\color{silver}{\mathrm{\phantom{1}30}}}
         \end{array} 
     \end{array} 
     \end{align}
@@ -262,7 +313,7 @@ $$
             & v[j]: & & \color{silver}{\mathrm{90}} & \mathrm{c0} \\
             +& v[i]: & \phantom{\mathrm{30}} & \color{silver}{\mathrm{90}} & \mathrm{c0} \\
             \hline
-            & & \phantom{\mathrm{30}} & \color{silver}{\mathrm{\phantom{1}90}} & \mathrm{\cancel{1}80}
+            & & \phantom{\mathrm{30}} & \color{silver}{\mathrm{\phantom{1}90}} & \mathrm{\color{red}{1}80}
         \end{array} 
     \end{array} 
     \end{align}
@@ -283,7 +334,7 @@ $$
             & v[j]: & & \color{silver}{\mathrm{90}} & \mathrm{c0} \\
             +& v[i]: & \phantom{\mathrm{30}} & \color{silver}{\mathrm{90}} & \mathrm{c0} \\
             \hline
-            & & \phantom{\mathrm{30}} & \color{green}{\mathrm{\phantom{1}90}} & \color{green}{\mathrm{\phantom{1}80}}
+            & P(\text{'00'}) & = & \color{green}{\mathrm{\phantom{1}90}} & \color{green}{\mathrm{\phantom{1}80}}
         \end{array} 
     \end{array} 
     \end{align}
@@ -296,19 +347,10 @@ $$
 </div>
 {::options parse_block_html="false" /}
 
+The permutation process for a string of length 2 can also be described as:
 
 {::options parse_block_html="true" /}
-<div style="overflow-x: scroll">
-$$ P(\text{'00'}) = P(\text{'\x30\x30'}) = \text{'\x90\x80'} $$
-</div>
-{::options parse_block_html="false" /}
-
-
-
-The permutation in two bytes (we'll omit the "forbidden" byte range for now) can also be described as:
-
-{::options parse_block_html="true" /}
-<div style="overflow-x: scroll">
+<div align=center style="overflow-x: scroll">
 $$
 \begin{array}{l|ll}
         \text{input bytes} &a_1, &a_2 \\
@@ -327,10 +369,12 @@ Let's say we want to reverse the permutation - starting from the last byte.
 We know that $$\color{olive}{2a_1 + a_2}$$ evaluted to $$\mathrm{\color{olive}{0x90}}$$, so we can substitute for it:
 
 {::options parse_block_html="true" /}
-<div style="overflow-x: scroll">
+<div align=center style="overflow-x: scroll">
 $$
-2(a_2 + (\color{olive}{2a_1 + a_2}) = \mathrm{0x80} \pmod{0xFF} \\
-2(a_2 + (\color{olive}{0x90}) = \mathrm{0x80} \pmod{0xFF}
+\begin{array}{ll}
+2(a_2 + (\color{olive}{2a_1 + a_2}) & \equiv \mathrm{0x80} \pmod{0x100} \\
+2(a_2 + (\color{olive}{0x90}) & \equiv \mathrm{0x80} \pmod{0x100}
+\end{array}
 $$
 </div>
 {::options parse_block_html="false" /}
@@ -340,13 +384,15 @@ But now, since we have to divide by 2 (which is not invertible in this field) - 
 {::options parse_block_html="true" /}
 <div style="overflow-x: scroll">
 $$
+\begin{array}{l}
 \begin{align}
-    &a_2 + \color{olive}{0x90} = \mathrm{0x40} \pmod{0xFF} \tag{case 1} \\
-    &a_2 + \color{olive}{0x90} = \mathrm{0xc0} \pmod{0xFF} \tag{case 2} \\
+    &a_2 + \color{olive}{0x90} \equiv \mathrm{0x40} \pmod{0x100} \tag{case 1} \\
+    &a_2 + \color{olive}{0x90} \equiv \mathrm{0xc0} \pmod{0x100} \tag{case 2} \\
     \\
     &a_2 = \color{red}{0xb0} \tag{case 1} \\
     &a_2 = \color{green}{0x30} \tag{case 2}
 \end{align}
+\end{array}
 $$
 </div>
 {::options parse_block_html="false" /}
@@ -354,31 +400,108 @@ $$
 We happen to know that the correct value here is 0x30, but generally speaking when trying to invert the permutation function we'll have to superimpose both results.
 Simply put - at each step of the decomposition process, we "split" into two branches - one for each result.
 
-n addition, for a certain range of values, another split occurs, due to the 
-If the given value is +0x22 from any of the "forbidden" byte values, we don't know if that value was arrived at naturally, or the corresponding forbidden value was the 
-result of the final step of the addition, and was then followed by correction by 0x22 bytes.
-Luckily, none of the forbidden values lead to double corrections as their range only spans 0x21 TODO ?? bytes.
+In addition, for a certain range of values, another split occurs - 
+at the end of each byte permutation, if the byte falls into a certain set of values ($$0x20 \lt b \lt 0x100$$) is is incremented by $$0x22$$.
 
-This means that we branch out between once and twice at each byte. For 16 bytes, that means between $$2^{16}$$ and $$2^{17}$$ branches, which isn't too bad, but luckily there
-are a couple of constraints that help us out in minimizing the search space.
+That means that if the byte we're currently looking at is between $$0x20+0x22 \equiv 0x42$$ and $$0x100 + 0x22 \equiv 0x22$$, we need to consider a case where it may have been
+incremented to that value, and not arrived at naturally.
+
+Thankfully, the correction accounts for the entire span of the "forbidden" values, so it can only occur once - and thus only accounts for one additional branch.
+
+Summarizing - at each stage of the key decomposition we branch out between once and twice. 
+Below is an implementation of the decomposition algorithm using recursion:
+<figure>
+{% highlight python %}
+ 48 def recursive_decomposition(input_key, decomposed_part=None, stop_at=4):
+ 49     assert type(input_key) is bytearray
+ 50     key = bytearray(input_key)  # copy
+ 51     if decomposed_part is None:
+ 52         decomposed_part = bytearray()
+ 53 
+ 54     if len(key) == 0:
+ 55         # Stopping condition
+ 56         return [
+ 57             decomposed_part,
+ 58         ]
+ 59 
+ 60     if stop_at is not None:
+ 61         if len(decomposed_part) >= stop_at:
+ 62             return [
+ 63                 decomposed_part,
+ 64             ]
+ 65 
+ 66     results = []
+ 67     value = key.pop()
+ 68     if not is_valid_char((value - 0x22) % 0x100):
+ 69         # We have an additional case to process
+ 70         new_key = bytearray(key)  # copy
+ 71         new_key.append((value - 0x22) % 0x100)
+ 72         # Where to save this?
+ 73         results.extend(recursive_decomposition(new_key, decomposed_part, stop_at))
+ 74 
+ 75     value = (value - sum(decomposed_part)) % 0x100
+ 76     # Subtract trailing (decomposed) characters
+ 77     # Compute two candidates
+ 78     candidate_1 = ((value // 2) - sum(key)) % 0x100
+ 79     candidate_2 = (((0x100 + value) // 2) - sum(key)) % 0x100
+ 80     new_decomposed_left = bytearray([candidate_1,]) + decomposed_part
+ 81     new_decomposed_right = bytearray([candidate_2,]) + decomposed_part
+ 82 
+ 83     results.extend(recursive_decomposition(key, new_decomposed_left, stop_at))
+ 84     results.extend(recursive_decomposition(key, new_decomposed_right, stop_at))
+ 85 
+ 86     return results
+{% endhighlight %}
+<center>
+<figcaption><i>Excerpt from qtext_cracker.py - the decomposition function</i></figcaption>
+</center>
+</figure>
+{::options parse_block_html="false" /}
+
+Considering a 16 byte key, that means between $$2^{16}$$ and $$2^{17}$$ branches, which isn't too bad, but luckily there are a couple of constraints that help us out in minimizing the search space.
 
 ### Reversing the first stage - 4 bytes to 4 printable characters
-The first constraint is pretty straightforward - any final byte has to be a printable character.
+The first constraint is pretty straightforward - any decomposed byte was originally a passcode byte - meaning an uppercase letter or number.
+{::options parse_block_html="true" /}
+<div style="overflow-x: scroll">
+$$
+\begin{array}{l}
+\begin{align}
+    &a_2 = \color{red}{0xb0} \tag{case 1} \\
+    &a_2 = \color{green}{0x30} \tag{case 2}
+\end{align}
+\end{array}
+$$
+</div>
+{::options parse_block_html="false" /}
+
+Considering the above case - it's clear we could have only chosen the second case, which happens to be the correct one.
+
+### Reversing the second stage - 16 bytes to $$4\times4$$ byte string
+The second constraint isn't as trivial, but also fairly simple - the format of the 16 byte key before the second permutation is a sequence of 4 bytes repeating 4 times.
+That means we only have to decompose a 4 byte suffix - and then re-feed 4 byte suffix through the permutation function and check if we have the original key.
+
+That narrows our search space down to $$2^5$$ for each step - or $$2^6$$ in total.
 
 
-### Reversing the second stage - 16 bytes to $$4\times4$$ byte strings
-The second constraint isnt as trivial, but is still pretty simple - the format of the 16 byte key before getting clobbered is 4 bytes repeating 4 times.
-That means we only have to decompose 4 bytes - and then re-feed those 4 bytes through the expansion network to see if we receive the original key.
+## Putting it all together
+So - starting from the 16 byte key ($$K$$) as extracted from the document:
+1. Run $$K$$ through the decomposition function, accumulating all possible 4 suffixes.
+2. Feed suffixes back through permutation function to find the correct one.
+3. Run resulting suffix through the decomposition function, again accumulating all results.
+4. Narrow results down to those matching the passcode input space to arrive at the original passcode.
 
-That narrows our search space down to 2**5 for each step - or 2**6 in total.
+
+TODO - screenshot of script running on document
+
+The qtext cracker script in its entirety can found here.
 
 
-
-
-https://en.wikipedia.org/wiki/PKZIP
-https://www.dosbox.com/
-https://www.scummvm.org/
-
-https://dos4gw.org/
-http://blog.ssokolow.com/archives/2018/12/02/resources-for-reverse-engineering-16-bit-applications/
-https://en.wikipedia.org/wiki/Control-flow_integrity
+[pkzip-wiki]: https://en.wikipedia.org/wiki/PKZIP
+[dosbox]: https://www.dosbox.com/
+[scummvm]: https://www.scummvm.org/
+[exetools]: https://www.exetools.com/
+[dos4gw]: https://dos4gw.org/3F_-_Overlay_manager_interrupt_Microsoft_LINK_EXE_Borland_TLINK_VROOMM
+[ssowkolow]: http://blog.ssokolow.com/archives/2018/12/02/resources-for-reverse-engineering-16-bit-applications/
+[cfg-wiki]: https://en.wikipedia.org/wiki/Control-flow_integrity
+[qtext-cracker]: https://github.com/pipornithology/qtext
