@@ -336,6 +336,7 @@ $$
 
 We happen to know that the correct value here is 0x30, but generally speaking when trying to invert the permutation function we'll have to superimpose both results.
 Simply put - at each step of the decomposition process, we "split" into two branches - one for each result.
+
 n addition, for a certain range of values, another split occurs, due to the 
 If the given value is +0x22 from any of the "forbidden" byte values, we don't know if that value was arrived at naturally, or the corresponding forbidden value was the 
 result of the final step of the addition, and was then followed by correction by 0x22 bytes.
