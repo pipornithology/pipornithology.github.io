@@ -24,6 +24,7 @@ url: "https://pipornithology.dev" # the base hostname & protocol for your site, 
  
 # Build settings
 markdown: kramdown
+theme: minima
 
 header_pages:
  - index.md
