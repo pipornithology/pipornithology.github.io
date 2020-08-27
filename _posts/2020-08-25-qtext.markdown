@@ -190,7 +190,7 @@ The result of this is indeed the key as it appears in the header.
 Thus the key derivation function $$K(\text{passcode})$$ is:
 
 {::options parse_block_html="true" /}
-<div align=center style="overflow-x: auto9">
+<div align=center style="overflow-x: auto">
 $$K(\text{passcode}) = P(P(\text{passcode}) | P(\text{passcode}) | P(\text{passcode}) | P(\text{passcode}))$$
 </div>
 {::options parse_block_html="false" /}
@@ -261,7 +261,7 @@ Let's first examine a simple case - the result of permutating a simple two chara
     document.getElementById("step").disabled = false;
   });
 </script>
-<div style="overflow-x: auto9">
+<div style="overflow-x: auto">
 <div id="math" align=center>
 $$ 
 \cssId{Step1}
@@ -380,7 +380,7 @@ $$
 The permutation process for a string of length 2 can also be described as:
 
 {::options parse_block_html="true" /}
-<div align=center style="overflow-x: auto9">
+<div align=center style="overflow-x: auto">
 $$
 \begin{array}{l|ll}
         \text{input bytes} &a_1, &a_2 \\
@@ -399,7 +399,7 @@ Let's say we want to reverse the permutation - starting from the last byte.
 We know that $$\color{olive}{2a_1 + a_2}$$ evaluted to $$\mathrm{\color{olive}{0x90}}$$, so we can substitute for it:
 
 {::options parse_block_html="true" /}
-<div align=center style="overflow-x: auto9">
+<div align=center style="overflow-x: auto">
 $$
 \begin{array}{ll}
 2(a_2 + (\color{olive}{2a_1 + a_2}) & \equiv \mathrm{0x80} \pmod{0x100} \\
@@ -412,7 +412,7 @@ $$
 But now, since we have to divide by 2 (which is not invertible in this field) - there are two possible solutions:
 
 {::options parse_block_html="true" /}
-<div style="overflow-x: auto9">
+<div style="overflow-x: auto">
 $$
 \begin{array}{l}
 \begin{align}
@@ -493,7 +493,7 @@ Considering a 16 byte key, that means between $$2^{16}$$ and $$2^{17}$$ branches
 ### Reversing the first stage - 4 bytes to 4 printable characters
 The first constraint is pretty straightforward - any decomposed byte was originally a passcode byte - meaning an uppercase letter or number.
 {::options parse_block_html="true" /}
-<div style="overflow-x: auto9">
+<div style="overflow-x: auto">
 $$
 \begin{array}{l}
 \begin{align}
