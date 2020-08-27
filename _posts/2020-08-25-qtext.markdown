@@ -522,7 +522,7 @@ So - starting from the 16 byte key ($$k$$) as extracted from the document:
 4. Narrow results down to those matching the passcode input space to arrive at the original passcode.
 
 
-{% include image.html url="/images/secret.pngauto9" style="width: 90vh"%}
+{% include image.html url="/images/secret.png" style="width: 90vh"%}
 The qtext cracker script in its entirety can found [here][qtext-cracker].
 
 
