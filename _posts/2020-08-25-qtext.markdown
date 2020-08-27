@@ -6,66 +6,86 @@ tags: math crypto ms-dos
 ---
 {% include mathjax.html %}
 
-# Fresh Crypto 
+{% include image.html url="/images/qtext_final.gif" style="width: 90vh"%}
 * Table of Contents
 {:toc}
 
+# Fresh Crypto 
 ## Intro
-Description of project - decrypting QText documents the passcode to which has been lost
-Short blog post describing the process of reversing and attacking the fairly weak encryption mechanism.
-A lot of the tools (Unpackers, IDA Free) and knowledge used had barely survived to this day.
+In summer 2020, we were commissioned by client with a cache of locked QText documents from the mid 90s - to which he has lost the passcode.
+
+[QText][qtext-wiki] was a DOS era Hebrew-English word processor written in Turbo Pascal, released 15 or so odd years before neither I or @Elisha had laid hands on a reverse engineering tool.
+
+In this blog post, we'll describe the process of analyzing the encrypted documents and reverse engineering a DOS program - using a combination of modern and anachronistic tools.
+
+Hopefully we'll be able to provide an insight into the early days of software development in Israel, and more generally into how cryptography was viewed and implemented in DOS era software.
+We also hope to help preserve the knowledge and tools utilized here - a lot of which have scracely survived to this day.
 
 ## Getting started - QText
-Luckily, we had access to working QText binaries and the [DOSBOX][dosbox] emulator.
+Luckily, we had access to working QText binaries, supplied by our client.
+We loaded up an instance of the [DOSBOX][dosbox] emulator and proceeded to play around with the word processor for a while - focusing on the document encryption feature.
 
-TODO: Screenshots of software, early conclusions on form of crypto
+Our initial conclusions included the following:
+* The passcode is short - 4 characters and limited to uppercase characters and numbers - which repesents a very small keyspace.
+* Documents are normally some form of plain rich text - but locked documents have a $$0x1D$$ header prepended to them. Documents with the same passcode have the same header (no salt).
+* Out of $$0x1D$$ header bytes - $$16$$ are actually variable - could it be the encryption key is included in the file?
+* Unfamiliar encryption - seems to work on per-line and per-column basis, meaning equal plaintext lines would result in equal ciphertext lines. Spaces are skipped when encrypting, which indicates the per-column charateristic.
 
-* Passcode is short - 4 characters and limited to uppercase characters and numbers - very small keyspace
-* Header is added to encrypted files - same passcode == same header - is it the encryption key?
-* 16 byte key (TODO - add vimdiff of hexdump of two file headers) is included in header - no actual secret
-* Per line encryption, per column values (show line of `'aaaa'`s encrypted, as well as line of `'a a '`s
+{% include captioned_image.html url="/images/key_line.png" description="First line of two documents with different passcodes - key is underlined" style="width: 70vh"%}
+{% include captioned_image.html url="/images/space_nospace.png" description="Payload from two documents with same passcode and plaintext - one is interlaced with spaces" style="width: 70vh"%}
 
-The key may be included in the file, but we don't know the encryption mechanism. 
-We could try and reverse it, but brute-forcing is feasible and simpler in this case - if we have a fast way to test the passcodes. 
-Assuming (quite safely) that the 16 byte "key" is derived from the passcode - we can try to reverse engineer the key derivation algorithm - which we first confirmed was not any well known hash function.
+Not so much crypto in the modern sense, but a more rudimentary system - pre-crypto if you will. 
+Keep in mind this was developed at a time before the internet was commonplace - let alone any knowledge of cryptographic best-practice.
+
+The key seems to be included in the file, but we don't know the encryption mechanism. 
+We could try and reverse engineer the encryption itself, but brute-forcing the passcode is feasible, and simpler in this case - if we have a fast way to test the passcodes. 
+
+Working under the (relatively safe) assumption that the 16 byte key in the file is somehow derived from the passcode - we can try and focus our RE efforts on the key derivation algorithm.
+Our first guess was that the passcode was simply hashed using a hash function from that time, but that direction unfortunately didn't pan out.
+
+We set our sight on the key derivation algorithm and started taking apart the executable.
 
 ## Reversing MS-DOS binaries
-MS-DOS era binaries - not quite PE, but does start with MZ
-TODO Reminder about flat memory space - 16 bits, segmentation
+DOS operates in [real mode][real-mode-memory], meaning the entire 16bit address space is shared between all processes and is addressed using a 16 bit [segment][segmentation] selector and an additional 16 bit address - which are used to cover a usable memory range of 640KB.
+
+Executables are not PEs, but [DOS MZ executables][dos-mz].
+The `file` utility recognizes our QTtext binary as a [PKZip][pkzip-wiki] packed SFX - self extracting executable.
+
+{% include image.html url="/images/file_util.png" style="width: 70vh"%}
 
 ### PKZip
-The `file` utility recognizes our binary as a [PKZip][pkzip-wiki] packed SFX - self extracting executable.
-TODO - screenshot of file output
-
 PKWare is responsible for the popularity of the ZIP file format as we know it today, 
 but it was also responsible for a widely used executable packer in the MS-DOS age.
 
-There isn't any readily available information about PKZip - presumably it utilized the same compression algorithm as the normal zip utility,
+There isn't a lot of readily available information about PKZip - presumably it utilized the same compression algorithm as the non-SFX zip utility,
 but we were struggling to find a tool that would properly unpack the SFX to a plain executable.
 
 Having failed to find additional information about this packer, and wanting to avoid reverse engineering the unpacker stub - 
-We tried to use the DOSBOX debuggers CPU LOG feature to step past the unpacker code, sometime after the original entry point - and then extract the code from memory.
+We tried to use the DOSBOX debuggers CPU `LOG` feature to step past the unpacker code, sometime after the original entry point - and then extract the code from memory.
 
-While this did work, it only accounted for a small part of the code - the executable was TODO in size and we could only see one segment of code executing at that time.
+While this did work, it only accounted for a small part of the code - the executable was 24K (packed) in size and we could only see one segment of code executing at that time.
 
-Recalling older days of reversing crackmes (though not as old as this program) reminded me that there used to be a host of generic unpacker tools, the working of which 
-were often mysterious - but generally speaking they did the job.
-Eventually we found the [following ssowkolow blog post][ssowkolow] which guided me to the the legendary reverse engineering relic - [exetools][exetools].
+Recalling older days of reversing crackmes (though not as old as this program) reminded me that generic unpacker tools were a dime a dozen. 
 
-The unpacker page had a huge amount of unpackers, we assume a lot of them would have done the job - as PKZip was fairly common. 
+Preceding some open-source trends by over a decade, their inner-working were often mysteriou, but most of the time they did the job.
+Eventually we found the [following ssokolow blog post][ssokolow] which guided me to the the a mythical reverse engineering relic - [exetools][exetools].
+
+The unpacker page had a huge list of unpackers, we assume a lot of them would have done the job - as PKZip was fairly common. 
 We first tried the one called `PKUNLITE`, and when that didn't work (but looked promising) - we found success with `DISLITE v1.15`.
 
-TODO - screenshots of both tools running
+{% include image.html url="/images/unpack.PNG" style="width: 80vh"%}
 
-### `int 3f` - MS-DOS Overlays
-Loading the binary in IDA Free 5.0 (which luckily is still in distribution - hosted at the ScummVM website) showed that the executable utilized dynamic overlay linking - likely Turbo Pascal overlays.
 
-Overlays were the solution to the limited 16 bit memory space. 
+
+### int 3f - MS-DOS Overlays
+Loading the binary in IDA Free 5.0 (which luckily is still in distribution - hosted at the [ScummVM][scummvm] website) showed that the executable utilized Turbo Pascal like memory overlays.
+
+Since we're running in real mode, paging/swapping memory wasn't possible, and overlays were the solution to the limited memory space. 
 
 The overlay mechanism was essentially an implementation of page swapping in user-space:
-The executable contained root segments of non-movable memory, and was accompanied by an .ovr file which contained additional code (in this case, a LOT of additional code).
+The executable contained root segments of non-movable memory, and was accompanied by an `.ovr` file which contained additional code (in this case, a LOT of additional code).
 
-The root code (which originates from the .exe file) was always mapped into memory, while segments of the overlay were mapped into memory selectively and swapped on-demand.
+The root code (which originates from the `.exe` file) was always mapped into memory, while segments of the overlay were mapped into memory selectively and swapped on-demand.
 
 Calls between overlays (and the root segment) occured through a jump table, if the overlay was already mapped into memory, the jump table stubs were "linked" to its current location in memory.
 
@@ -75,47 +95,53 @@ The overlay metadata contained - among other things - the file offset of the rel
 
 The interrupt handler would then map the relevant overlay into memory, in place of another overlay, and fix up the stubs, before resuming execution.
 
-TODO - screenshot of overlay metadata and screen shot of linked jump 
+{% include captioned_image.html url="/images/unlinked_stub.PNG" description="An example of an unlinked stub. Note the overlay metadata above." style="width: 60vh"%}
+
+{% include captioned_image.html url="/images/linked_stub.PNG" description="Same stub, now linked after its overlay was loaded into memory." style="width: 60vh"%}
+
 
 IDA does an excellent job in flattening and statically linking the stubs so we can reverse engineer the program in its entirety.
 
-However this presented a challenge for us in dynamically debugging the code, since while the root segment were always loaded into the same memory area, the overlays would change location very often, making it impossible for us to place breakpoints properly.
+However this presented a challenge for us in dynamically debugging the code, since while the root segments were always loaded into the same memory area, the overlays would change location very often, making it impossible for us to place breakpoints properly.
 
-Dredging up information about the Turbo Pascal overlay system was difficult, and the DOSBOX debugger did not explicitly support stepping out of the interrupt.
+Dredging up information about the Turbo Pascal overlay system was difficult, and the DOSBOX debugger did not conveniently support stepping out of the interrupt.
 
 It's likely that we could have reverse engineering the interrupt handler and found a place to break in right before resuming program execution in the newly loaded overlay,
 but we eventually opted for a simpler solution - finding an overlay-to-root call that we could break on and then step out into the newly loaded overlay.
+{% include captioned_image.html url="/images/overlay-to-root.PNG" description="An example of a call from an overlay to the root segment.overlay-to-root.PNG" style="width: 70vh"%}
+
+In the above example `pascal_strncpy` is located in the root segment and its address is fixed and predictable. To break into the calling function in overlay 73, we would instead place a 
+breakpoint at `pascal_strncpy` and step out into the calling function.
 
 This is slightly arduous but for the fairly short task at hand it would work, and we had ample overlay-to-root calls to break on since the root segment hosted a lot of
 Turbo Pascal standard functions.
-
-TODO - screenshot of overlay function calling root segment function
 
 ## Key expansion function
 ### Tracing through passcode flow
 Finding the key expansion function took some reversing and a lot of tracing.
 Our initial idea was perform hot spot analysis by using DOSBOX's CPU log command to trace execution while repeatedly failing the passcode check on a locked document.
-TODO - add screenshot of failed passcode check
+{% include image.html url="/images/wrong_passcode.PNG" style="width: 70vh"%}
 
-Eventually we went for a more direct approach and simply placed a breakpoint on the `int 21` interrupt handler to catch open and read calls
-TODO - add debugger picture, correct int 21 params
+Eventually we went for a more direct approach and simply placed a breakpoint on the `int 21` interrupt handler to catch open and read calls.
+{% include captioned_image.html url="/images/dosbox_int21_3d_open.PNG" description="The DOSBOX debugger at a interrupt call to open. The requested path is seen in the data overview." style="width: 90vh"%}
 
-We traced through an open on the document path and a read of 0x1d bytes - which is the exact size of the header we saw in locked documents.
-Continuing with dynamic debugging, we pinpointed a function that takes the entered passcode string and the 0x1d header as parameters.
+We traced through an open on the document path and a read of $$0x1D$$ bytes - which is the exact size of the header we saw in locked documents.
+Continuing with dynamic debugging, we pinpointed a function that takes the entered passcode string and the $$0x1D$$ header as parameters.
 
 Digging in, we see how the the passcode is passed into an internal function, and the result is compared to the header.
 
-TODO - add IDA screen shot of main function, and of pascal string compare call
+{% include captioned_image.html url="/images/header_check.PNG" description="Part of the passcode check flow - this function returns 1 if the passcode was valid." style="width: 60vh"%}
 
-Presumably, the function at TODO performs key expansion.
+Presumably, the function call prior to the `memcmp` performs key expansion, and the result is then compared to the file header.
 
 ### Key derivation function
 The passcode is first passed through a permutation function which iteratively increments each byte of the passcode by the sum of all bytes in the string.
 Before proceeding to the byte in the next position, a certain predicate is tested by using the value of the resulting byte as an index into a static bitmap - where each bit represents whether or not
-that byte value is valid (1) or not (0). Similar to [CFG][cfg-wiki]!
+that byte value is valid (1) or not (0). Similar to [CFG][cfg-wiki].
+{% include captioned_image.html url="/images/check_bitmap.PNG" description="This function is used in several places to check a byte value vs a bitmap." style="width: 60vh"%}
 
-If the value is invalid - it is incremented by 0x22 - which in the case of our immutable bitmap - is always enough to push it into the valid value range.
-TODO - screen shot of bitmap
+If the value is invalid - it is incremented by $$0x22$$ - which in the case of our immutable bitmap - is always enough to push it into the valid value range.
+{% include captioned_image.html url="/images/bitmap.PNG" description="The bitmap used in the permutation function." style="width: 90vh"%}
 
 {::options parse_block_html="true" /}
 <figure>
@@ -163,7 +189,11 @@ The result of this is indeed the key as it appears in the header.
 
 Thus the key derivation function $$K(\text{passcode})$$ is:
 
+{::options parse_block_html="true" /}
+<div align=center style="overflow-x: auto9">
 $$K(\text{passcode}) = P(P(\text{passcode}) | P(\text{passcode}) | P(\text{passcode}) | P(\text{passcode}))$$
+</div>
+{::options parse_block_html="false" /}
 
 Now we can brute-force the passcode which has a very small input space very quickly.
 However, with our new-found knowledge of the key derivation function, we can try to reverse it for an even quicker solution.
@@ -231,7 +261,7 @@ Let's first examine a simple case - the result of permutating a simple two chara
     document.getElementById("step").disabled = false;
   });
 </script>
-<div style="overflow-x: scroll">
+<div style="overflow-x: auto9">
 <div id="math" align=center>
 $$ 
 \cssId{Step1}
@@ -250,7 +280,7 @@ $$
             & v[j]: & \phantom{\mathrm{30}} & \mathrm{30} & \color{silver}{\mathrm{30}} \\
             +& v[i]: & \phantom{\mathrm{30}} & \mathrm{30} & \color{silver}{\mathrm{30}} \\
             \hline
-            & & \phantom{\mathrm{30}} & \mathrm{\phantom{\color{red}{1}}60} & \color{silver}{\mathrm{\phantom{1}30}}
+            & & \phantom{\mathrm{30}} & \mathrm{\phantom{\color{red}{1}}\cssId{text}{60}} & \color{silver}{\mathrm{\phantom{1}30}}
         \end{array} 
     \end{array} 
     \end{align}
@@ -350,7 +380,7 @@ $$
 The permutation process for a string of length 2 can also be described as:
 
 {::options parse_block_html="true" /}
-<div align=center style="overflow-x: scroll">
+<div align=center style="overflow-x: auto9">
 $$
 \begin{array}{l|ll}
         \text{input bytes} &a_1, &a_2 \\
@@ -369,7 +399,7 @@ Let's say we want to reverse the permutation - starting from the last byte.
 We know that $$\color{olive}{2a_1 + a_2}$$ evaluted to $$\mathrm{\color{olive}{0x90}}$$, so we can substitute for it:
 
 {::options parse_block_html="true" /}
-<div align=center style="overflow-x: scroll">
+<div align=center style="overflow-x: auto9">
 $$
 \begin{array}{ll}
 2(a_2 + (\color{olive}{2a_1 + a_2}) & \equiv \mathrm{0x80} \pmod{0x100} \\
@@ -382,7 +412,7 @@ $$
 But now, since we have to divide by 2 (which is not invertible in this field) - there are two possible solutions:
 
 {::options parse_block_html="true" /}
-<div style="overflow-x: scroll">
+<div style="overflow-x: auto9">
 $$
 \begin{array}{l}
 \begin{align}
@@ -463,7 +493,7 @@ Considering a 16 byte key, that means between $$2^{16}$$ and $$2^{17}$$ branches
 ### Reversing the first stage - 4 bytes to 4 printable characters
 The first constraint is pretty straightforward - any decomposed byte was originally a passcode byte - meaning an uppercase letter or number.
 {::options parse_block_html="true" /}
-<div style="overflow-x: scroll">
+<div style="overflow-x: auto9">
 $$
 \begin{array}{l}
 \begin{align}
@@ -485,23 +515,26 @@ That narrows our search space down to $$2^5$$ for each step - or $$2^6$$ in tota
 
 
 ## Putting it all together
-So - starting from the 16 byte key ($$K$$) as extracted from the document:
-1. Run $$K$$ through the decomposition function, accumulating all possible 4 suffixes.
+So - starting from the 16 byte key ($$k$$) as extracted from the document:
+1. Run $$k$$ through the decomposition function, accumulating all possible 4 suffixes.
 2. Feed suffixes back through permutation function to find the correct one.
 3. Run resulting suffix through the decomposition function, again accumulating all results.
 4. Narrow results down to those matching the passcode input space to arrive at the original passcode.
 
 
-TODO - screenshot of script running on document
-
+{% include image.html url="/images/secret.pngauto9" style="width: 90vh"%}
 The qtext cracker script in its entirety can found [here][qtext-cracker].
 
 
+[qtext-wiki]: https://en.wikipedia.org/wiki/QText_(word_processor)
 [pkzip-wiki]: https://en.wikipedia.org/wiki/PKZIP
 [dosbox]: https://www.dosbox.com/
 [scummvm]: https://www.scummvm.org/
 [exetools]: https://www.exetools.com/
 [dos4gw]: https://dos4gw.org/3F_-_Overlay_manager_interrupt_Microsoft_LINK_EXE_Borland_TLINK_VROOMM
-[ssowkolow]: http://blog.ssokolow.com/archives/2018/12/02/resources-for-reverse-engineering-16-bit-applications/
+[ssokolow]: http://blog.ssokolow.com/archives/2018/12/02/resources-for-reverse-engineering-16-bit-applications/
 [cfg-wiki]: https://en.wikipedia.org/wiki/Control-flow_integrity
 [qtext-cracker]: https://github.com/pipornithology/qtext
+[segmentation]: https://wiki.osdev.org/Segmentation
+[real-mode-memory]: https://wiki.osdev.org/Real_Mode
+[dos-mz]: https://en.wikipedia.org/wiki/DOS_MZ_executable
