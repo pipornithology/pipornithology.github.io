@@ -1,24 +1,27 @@
 ---
 layout: post
-title:  "Fresh Crypto"
+title:  "Pre-Crypto"
 date:   2020-08-25 18:15:30 +0000
 tags: math crypto ms-dos
 ---
 {% include mathjax.html %}
 
 {% include image.html url="/images/qtext_final.gif" style="width: 90vh"%}
+
+             
+
 * Table of Contents
 {:toc}
 
 # Fresh Crypto 
 ## Intro
-In summer 2020, we were commissioned by client with a cache of locked QText documents from the mid 90s - to which he has lost the passcode.
+In August 2020, we were commissioned by a client with a cache of locked QText documents from the mid 90s - to which he has lost the passcode.
 
 [QText][qtext-wiki] was a DOS era Hebrew-English word processor written in Turbo Pascal, released 15 or so odd years before neither I or @Elisha had laid hands on a reverse engineering tool.
 
-In this blog post, we'll describe the process of analyzing the encrypted documents and reverse engineering a DOS program - using a combination of modern and anachronistic tools.
+In this blog post, we'll describe the process of analyzing the encrypted documents and reverse engineering a DOS program.
 
-Hopefully we'll be able to provide an insight into the early days of software development in Israel, and more generally into how cryptography was viewed and implemented in DOS era software.
+Hopefully we'll be able to provide some insight into the early days of software development in Israel, and more generally into how cryptography was viewed and implemented in the early days of consumer software development.
 We also hope to help preserve the knowledge and tools utilized here - a lot of which have scracely survived to this day.
 
 ## Getting started - QText
@@ -26,27 +29,26 @@ Luckily, we had access to working QText binaries, supplied by our client.
 We loaded up an instance of the [DOSBOX][dosbox] emulator and proceeded to play around with the word processor for a while - focusing on the document encryption feature.
 
 Our initial conclusions included the following:
-* The passcode is short - 4 characters and limited to uppercase characters and numbers - which repesents a very small keyspace.
+* The passcode is short - 4 characters and limited to uppercase characters and numbers - which represents a very small keyspace relative to modern compute power.
 * Documents are normally some form of plain rich text - but locked documents have a $$0x1D$$ header prepended to them. Documents with the same passcode have the same header (no salt).
-* Out of $$0x1D$$ header bytes - $$16$$ are actually variable - could it be the encryption key is included in the file?
+* Out of $$0x1D$$ header bytes - $$16$$ are actually variable and correlate directly to the passcode - could it be the encryption key is included in the file?
 * Unfamiliar encryption - seems to work on per-line and per-column basis, meaning equal plaintext lines would result in equal ciphertext lines. Spaces are skipped when encrypting, which indicates the per-column charateristic.
 
 {% include captioned_image.html url="/images/key_line.png" description="First line of two documents with different passcodes - key is underlined" style="width: 70vh"%}
 {% include captioned_image.html url="/images/space_nospace.png" description="Payload from two documents with same passcode and plaintext - one is interlaced with spaces" style="width: 70vh"%}
 
-Not so much crypto in the modern sense, but a more rudimentary system - pre-crypto if you will. 
-Keep in mind this was developed at a time before the internet was commonplace - let alone any knowledge of cryptographic best-practice.
+So a very rudimentary system, as you might expect considering this was developed at a time before the internet was commonplace - let alone knowledge of cryptographic best-practice.
 
 The key seems to be included in the file, but we don't know the encryption mechanism. 
-We could try and reverse engineer the encryption itself, but brute-forcing the passcode is feasible, and simpler in this case - if we have a fast way to test the passcodes. 
+We could try and reverse engineer the encryption function, but brute-forcing the passcode is feasible, and in this case much simpler - if we have a fast way to test the passcodes. 
 
-Working under the (relatively safe) assumption that the 16 byte key in the file is somehow derived from the passcode - we can try and focus our RE efforts on the key derivation algorithm.
+Working under the relatively safe assumption that the 16 byte key in the file is somehow derived from the passcode - we can try and focus our RE efforts on the key derivation algorithm.
 Our first guess was that the passcode was simply hashed using a hash function from that time, but that direction unfortunately didn't pan out.
 
 We set our sight on the key derivation algorithm and started taking apart the executable.
 
 ## Reversing MS-DOS binaries
-DOS operates in [real mode][real-mode-memory], meaning the entire 16bit address space is shared between all processes and is addressed using a 16 bit [segment][segmentation] selector and an additional 16 bit address - which are used to cover a usable memory range of 640KB.
+DOS operates in [real mode][real-mode-memory], meaning the entire 16 bit address space is shared between all processes and is addressed using a 16 bit [segment][segmentation] selector and an additional 16 bit address - which are used to cover a usable memory range of 640KB.
 
 Executables are not PEs, but [DOS MZ executables][dos-mz].
 The `file` utility recognizes our QTtext binary as a [PKZip][pkzip-wiki] packed SFX - self extracting executable.
@@ -54,21 +56,21 @@ The `file` utility recognizes our QTtext binary as a [PKZip][pkzip-wiki] packed 
 {% include image.html url="/images/file_util.png" style="width: 70vh"%}
 
 ### PKZip
-PKWare is responsible for the popularity of the ZIP file format as we know it today, 
-but it was also responsible for a widely used executable packer in the MS-DOS age.
+[PKWare][pkware] is responsible for the popularity of the ZIP file format as we know it today, 
+and also for a for a widely used executable packer in the MS-DOS age.
 
-There isn't a lot of readily available information about PKZip - presumably it utilized the same compression algorithm as the non-SFX zip utility,
-but we were struggling to find a tool that would properly unpack the SFX to a plain executable.
+There isn't a lot of readily available information about the PKZip packer - presumably it utilized the same compression algorithm as the non-SFX zip utility,
+but we were struggling to find a tool that would properly unpack the SFX to a functioning executable.
 
 Having failed to find additional information about this packer, and wanting to avoid reverse engineering the unpacker stub - 
-We tried to use the DOSBOX debuggers CPU `LOG` feature to step past the unpacker code, sometime after the original entry point - and then extract the code from memory.
+we attempted to use the DOSBOX debuggers CPU `LOG` feature to step past the unpacker code, sometime after the original entry point - and then extract the code from memory.
 
-While this did work, it only accounted for a small part of the code - the executable was 24K (packed) in size and we could only see one segment of code executing at that time.
+While this did work, it only accounted for a small part of the code - the executable was 24K in size (packed).
 
-Recalling older days of reversing crackmes (though not as old as this program) reminded me that generic unpacker tools were a dime a dozen. 
+Recalling older days of reversing crackmes (though not as old as this program), we went looking for a generic executable unpacking tool which used to be a dime a dozen on cracking sites.
 
-Preceding some open-source trends by over a decade, their inner-working were often mysteriou, but most of the time they did the job.
-Eventually we found the [following ssokolow blog post][ssokolow] which guided me to the the a mythical reverse engineering relic - [exetools][exetools].
+Preceding some open-source trends by over a decade, their inner-working were often mysterious, but most of the time they did the job.
+Eventually we found the [following ssokolow blog post][ssokolow] which guided us to the the a mythical reverse engineering relic - [exetools][exetools].
 
 The unpacker page had a huge list of unpackers, we assume a lot of them would have done the job - as PKZip was fairly common. 
 We first tried the one called `PKUNLITE`, and when that didn't work (but looked promising) - we found success with `DISLITE v1.15`.
@@ -76,6 +78,7 @@ We first tried the one called `PKUNLITE`, and when that didn't work (but looked 
 {% include image.html url="/images/unpack.PNG" style="width: 80vh"%}
 
 
+ 
 
 ### int 3f - MS-DOS Overlays
 Loading the binary in IDA Free 5.0 (which luckily is still in distribution - hosted at the [ScummVM][scummvm] website) showed that the executable utilized Turbo Pascal like memory overlays.
@@ -85,7 +88,7 @@ Since we're running in real mode, paging/swapping memory wasn't possible, and ov
 The overlay mechanism was essentially an implementation of page swapping in user-space:
 The executable contained root segments of non-movable memory, and was accompanied by an `.ovr` file which contained additional code (in this case, a LOT of additional code).
 
-The root code (which originates from the `.exe` file) was always mapped into memory, while segments of the overlay were mapped into memory selectively and swapped on-demand.
+The root code (which originates from the `.exe` file) is always mapped into memory, while segments of the overlay were mapped into memory selectively and swapped on-demand.
 
 Calls between overlays (and the root segment) occured through a jump table, if the overlay was already mapped into memory, the jump table stubs were "linked" to its current location in memory.
 
@@ -119,7 +122,7 @@ Turbo Pascal standard functions.
 ## Key expansion function
 ### Tracing through passcode flow
 Finding the key expansion function took some reversing and a lot of tracing.
-Our initial idea was perform hot spot analysis by using DOSBOX's CPU log command to trace execution while repeatedly failing the passcode check on a locked document.
+Our initial idea was perform hot spot analysis by using DOSBOX's CPU `LOG` command to trace execution while repeatedly failing the passcode check on a locked document.
 {% include image.html url="/images/wrong_passcode.PNG" style="width: 70vh"%}
 
 Eventually we went for a more direct approach and simply placed a breakpoint on the `int 21` interrupt handler to catch open and read calls.
@@ -137,10 +140,12 @@ Presumably, the function call prior to the `memcmp` performs key expansion, and 
 ### Key derivation function
 The passcode is first passed through a permutation function which iteratively increments each byte of the passcode by the sum of all bytes in the string.
 Before proceeding to the byte in the next position, a certain predicate is tested by using the value of the resulting byte as an index into a static bitmap - where each bit represents whether or not
-that byte value is valid (1) or not (0). Similar to [CFG][cfg-wiki].
+that byte value is valid (1) or not (0). A more modern example of this sort of bitmap in use can be found in [CFG][cfg-wiki].
 {% include captioned_image.html url="/images/check_bitmap.PNG" description="This function is used in several places to check a byte value vs a bitmap." style="width: 60vh"%}
 
-If the value is invalid - it is incremented by $$0x22$$ - which in the case of our immutable bitmap - is always enough to push it into the valid value range.
+After each byte is permutated, the byte value is tested. 
+If the value is invalid - it is incremented by $$0x22$$. 
+In the case of our immutable bitmap - this "correction" is always enough to push it into the valid value range - meaning it can only occur once per byte.
 {% include captioned_image.html url="/images/bitmap.PNG" description="The bitmap used in the permutation function." style="width: 90vh"%}
 
 {::options parse_block_html="true" /}
@@ -226,25 +231,14 @@ Let's first examine a simple case - the result of permutating a simple two chara
   //  Once a step is taken, the reset button is made available.
   //
   window.ShowStep = function () {
-    document.getElementById("Step"+n).style.display = "none"; n++;
-    document.getElementById("Step"+n).style.display = "block"
+    document.getElementById("Step"+n).style.display = "none";
     if (n == 5) {
-        document.getElementById("step").disabled = true
+        n = 0;
     }
-    document.getElementById("reset").disabled = false;
+    n++;
+    document.getElementById("Step"+n).style.display = "block"
   }
 
-  //
-  //  Enable the step button and disable the reset button.
-  //  Hide the steps.
-  //
-  window.ResetSteps = function () {
-    document.getElementById("step").disabled = false;
-    document.getElementById("reset").disabled = true;
-    var i = 1, step; n = 1;
-    while (step = document.getElementById("Step"+i)) {step.style.display = "none"; i++}
-    document.getElementById("Step1").style.display = "block"
-  }
 })();
 </script>
 <script type="text/x-mathjax-config">
@@ -258,11 +252,11 @@ Let's first examine a simple case - the result of permutating a simple two chara
   //  Enable the step button after the equation is typeset
   //
   MathJax.Hub.Queue(function () {
-    document.getElementById("step").disabled = false;
+    setInterval(ShowStep, 1000)
   });
 </script>
 <div style="overflow-x: auto">
-<div id="math" align=center>
+<div id="mathanim" align=center>
 $$ 
 \cssId{Step1}
 {
@@ -371,8 +365,6 @@ $$
 }
 $$
 
-<input type="button" onclick="ShowStep()" value="Show Next Step" id="step" disabled="true" />
-<input type="button" onclick="ResetSteps()" value="Reset" id="reset" disabled="true" />
 </div>
 </div>
 {::options parse_block_html="false" /}
@@ -431,7 +423,7 @@ We happen to know that the correct value here is 0x30, but generally speaking wh
 Simply put - at each step of the decomposition process, we "split" into two branches - one for each result.
 
 In addition, for a certain range of values, another split occurs - 
-at the end of each byte permutation, if the byte falls into a certain set of values ($$0x20 \lt b \lt 0x100$$) is is incremented by $$0x22$$.
+at the end of each byte permutation, if the byte falls into a certain set of values ($$0x20 \lt b \lt 0x100$$) it is incremented by $$0x22$$.
 
 That means that if the byte we're currently looking at is between $$0x20+0x22 \equiv 0x42$$ and $$0x100 + 0x22 \equiv 0x22$$, we need to consider a case where it may have been
 incremented to that value, and not arrived at naturally.
@@ -488,7 +480,7 @@ Below is an implementation of the decomposition algorithm using recursion:
 </figure>
 {::options parse_block_html="false" /}
 
-Considering a 16 byte key, that means between $$2^{16}$$ and $$2^{17}$$ branches, which isn't too bad, but luckily there are a couple of constraints that help us out in minimizing the search space.
+Considering a 16 byte key, that means between $$2^{16}$$ and $$2^{17}$$ branches, which isn't too bad, but luckily there are a couple of constraints that help us minimize the search space considerably.
 
 ### Reversing the first stage - 4 bytes to 4 printable characters
 The first constraint is pretty straightforward - any decomposed byte was originally a passcode byte - meaning an uppercase letter or number.
@@ -505,29 +497,32 @@ $$
 </div>
 {::options parse_block_html="false" /}
 
-Considering the above case - it's clear we could have only chosen the second case, which happens to be the correct one.
+Considering our example from before - it's clear we could have only chosen the printable value - $$\mathrm{0x30}$$.
 
 ### Reversing the second stage - 16 bytes to $$4\times4$$ byte string
-The second constraint isn't as trivial, but also fairly simple - the format of the 16 byte key before the second permutation is a sequence of 4 bytes repeating 4 times.
-That means we only have to decompose a 4 byte suffix - and then re-feed 4 byte suffix through the permutation function and check if we have the original key.
+The second constraint isn't as trivial, but still pretty simple - the format of the 16 byte key right before the second permutation is a sequence of 4 bytes, repeated 4 times.
+That means we only have to decompose a 4 byte suffix - and then test that 4 byte suffix by feeding it through the permutation function and checking if the result is the original key.
 
-That narrows our search space down to $$2^5$$ for each step - or $$2^6$$ in total.
+That narrows our search space down to $$2^5$$ for each step - or $$2^6$$ in total. You could realistically break this encryption on a piece of paper if you have the patience!
 
 
 ## Putting it all together
 So - starting from the 16 byte key ($$k$$) as extracted from the document:
-1. Run $$k$$ through the decomposition function, accumulating all possible 4 suffixes.
+1. Run $$k$$ through the decomposition function, accumulating all possible 4 byte suffixes.
 2. Feed suffixes back through permutation function to find the correct one.
 3. Run resulting suffix through the decomposition function, again accumulating all results.
 4. Narrow results down to those matching the passcode input space to arrive at the original passcode.
 
 
 {% include image.html url="/images/secret.png" style="width: 90vh"%}
+
+
 The qtext cracker script in its entirety can found [here][qtext-cracker].
 
 
 [qtext-wiki]: https://en.wikipedia.org/wiki/QText_(word_processor)
 [pkzip-wiki]: https://en.wikipedia.org/wiki/PKZIP
+[pkware]: https://en.wikipedia.org/wiki/PKWare
 [dosbox]: https://www.dosbox.com/
 [scummvm]: https://www.scummvm.org/
 [exetools]: https://www.exetools.com/
