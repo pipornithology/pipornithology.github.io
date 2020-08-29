@@ -378,7 +378,7 @@ $$
         \text{input bytes} &a_1, &a_2 \\
         \text{step 1} &a_1 + a_1 + a_2, &a_2  \\
         \text{step 2} &a_1 + a_1 + a_2, &a_2 + (a_1 + a_1 + a_2) + (a_2 + (a_1 + a_1 + a_2)) \\
-        P(\text{input bytes})&\color{olive}{2a_1 + a_2}, &2(a_2 + (\color{olive}{2a_1 + a_2}) \\
+        P(\text{input bytes})&\color{olive}{2a_1 + a_2}, &2(a_2 + (\color{olive}{2a_1 + a_2})) \\
         P(\text{'00'})&\mathrm{\color{olive}{0x90}}, &\mathrm{0x80}
 \end{array}
 $$
@@ -394,8 +394,8 @@ We know that $$\color{olive}{2a_1 + a_2}$$ evaluted to $$\mathrm{\color{olive}{0
 <div align=center style="overflow-x: auto">
 $$
 \begin{array}{ll}
-2(a_2 + (\color{olive}{2a_1 + a_2}) & \equiv \mathrm{0x80} \pmod{0x100} \\
-2(a_2 + (\color{olive}{0x90}) & \equiv \mathrm{0x80} \pmod{0x100}
+2(a_2 + \color{olive}{2a_1 + a_2}) & \equiv \mathrm{0x80} \pmod{0x100} \\
+2(a_2 + \color{olive}{0x90}) & \equiv \mathrm{0x80} \pmod{0x100}
 \end{array}
 $$
 </div>
@@ -419,7 +419,7 @@ $$
 </div>
 {::options parse_block_html="false" /}
 
-We happen to know that the correct value here is 0x30, but generally speaking when trying to invert the permutation function we'll have to superimpose both results.
+We happen to know that the correct value here is $$\mathrm{0x30}$$, but generally speaking when trying to invert the permutation function we'll have to superimpose both results.
 Simply put - at each step of the decomposition process, we "split" into two branches - one for each result.
 
 In addition, for a certain range of values, another split occurs - 
